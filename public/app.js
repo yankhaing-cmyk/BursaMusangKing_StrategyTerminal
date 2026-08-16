@@ -19,7 +19,7 @@ const atrMoney=n=>{
 };
 const pct=n=>Number.isFinite(Number(n))?Number(n).toFixed(2)+'%':'—';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const MANUAL_RUN_URL='https://github.com/yankhaing-cmyk/BursaMusangKing_StrategyTerminal/actions/workflows/strategy-scan.yml';
+const RUN_KEY_STORAGE='bursa-manual-run-key';
 const THEME_KEY='bursa-theme';
 
 const formatMYT=iso=>{
@@ -246,7 +246,35 @@ $('#openSearch').oninput=renderOpen;
 $('#historySearch').oninput=renderHistory;
 $('#refresh').onclick=load;
 $('#themeToggle').onclick=()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
-$('#manualRun').onclick=()=>window.open(MANUAL_RUN_URL,'_blank','noopener,noreferrer');
+async function triggerManualRun(){
+  const b=$('#manualRun');
+  let key=localStorage.getItem(RUN_KEY_STORAGE)||'';
+  if(!key){
+    key=(window.prompt('Enter your Manual Run Key. It will be saved on this device.')||'').trim();
+    if(!key)return;
+  }
+
+  const original=b.textContent;
+  b.disabled=true;
+  b.textContent='Starting…';
+  try{
+    const r=await fetch('/api/manual-run',{method:'POST',headers:{'x-run-key':key,'content-type':'application/json'},body:'{}'});
+    let j={};try{j=await r.json()}catch{}
+    if(r.status===401){localStorage.removeItem(RUN_KEY_STORAGE);throw new Error('Run key rejected. Click Run and enter it again.')}
+    if(!r.ok)throw new Error(j.error||`Manual run failed (${r.status})`);
+    localStorage.setItem(RUN_KEY_STORAGE,key);
+    b.textContent='✓ Started';
+    setTimeout(()=>{b.textContent=original},5000);
+  }catch(e){
+    b.textContent='⚠ Failed';
+    window.alert(e.message);
+    setTimeout(()=>{b.textContent=original},5000);
+  }finally{
+    b.disabled=false;
+  }
+}
+
+$('#manualRun').onclick=triggerManualRun;
 $('#reviewAll').onclick=async()=>{await fetch('/api/review',{method:'POST',headers:{'content-type':'application/json'},body:'{"all":true}'});await load()};
 
 initTheme();
