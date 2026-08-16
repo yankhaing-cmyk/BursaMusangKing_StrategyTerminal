@@ -5,14 +5,15 @@ const JSON_HEADERS={'content-type':'application/json; charset=utf-8','cache-cont
 export default { async fetch(request,env){
   const url=new URL(request.url);
   try{
-if(url.pathname==='/api/health') return await health(env);
-if(url.pathname==='/api/dashboard') return await dashboard(env,url);
-if(url.pathname==='/api/events') return await eventsApi(env,url);
-if(url.pathname==='/api/positions') return await positionsApi(env,url);
-if(url.pathname==='/api/trades') return await tradesApi(env,url);
-if(url.pathname==='/api/review'&&request.method==='POST') return await markReviewed(env);
-if(url.pathname==='/api/publish'&&request.method==='POST') return await publishSnapshot(request,env);
-if(url.pathname==='/api/bootstrap'&&request.method==='POST') return await bootstrapSnapshot(request,env,url);
+    if(url.pathname==='/api/health') return await health(env);
+    if(url.pathname==='/api/dashboard') return await dashboard(env,url);
+    if(url.pathname==='/api/events') return await eventsApi(env,url);
+    if(url.pathname==='/api/positions') return await positionsApi(env,url);
+    if(url.pathname==='/api/trades') return await tradesApi(env,url);
+    if(url.pathname==='/api/manual-run'&&request.method==='POST') return await manualRun(request,env);
+    if(url.pathname==='/api/review'&&request.method==='POST') return await markReviewed(env);
+    if(url.pathname==='/api/publish'&&request.method==='POST') return await publishSnapshot(request,env);
+    if(url.pathname==='/api/bootstrap'&&request.method==='POST') return await bootstrapSnapshot(request,env,url);
     return env.ASSETS.fetch(request);
   }catch(e){console.error(e);return json({ok:false,error:e?.message||String(e)},e?.status||500)}
 }};
@@ -73,6 +74,37 @@ async function tradesApi(env,url){
 function performance(trades){
   const g=new Map();for(const t of trades){const x=g.get(t.strategy)||{strategy:t.strategy,trades:0,wins:0,sum:0,gp:0,gl:0,hold:0};const r=Number(t.return_pct);x.trades++;x.sum+=r;x.hold+=Number(t.hold_days||0);if(r>0){x.wins++;x.gp+=r}else x.gl+=Math.abs(r);g.set(t.strategy,x)}
   return [...g.values()].map(x=>({strategy:x.strategy,trades:x.trades,wins:x.wins,win_rate:x.trades?100*x.wins/x.trades:0,avg_return:x.trades?x.sum/x.trades:0,gross_profit:x.gp,gross_loss:x.gl,profit_factor:x.gl?x.gp/x.gl:null,avg_hold:x.trades?x.hold/x.trades:0}));
+}
+
+async function manualRun(request,env){
+  const runKey=request.headers.get('x-run-key')||'';
+  if(!env.MANUAL_RUN_KEY||runKey!==env.MANUAL_RUN_KEY)throw http(401,'invalid manual run key');
+  if(!env.GITHUB_ACTIONS_TOKEN)throw http(500,'GITHUB_ACTIONS_TOKEN is not configured');
+
+  const lastRaw=await setting(env,'manual_run_last_at','');
+  const lastMs=Date.parse(lastRaw||'');
+  if(Number.isFinite(lastMs)&&Date.now()-lastMs<60000)throw http(429,'A manual run was triggered less than 60 seconds ago.');
+
+  const apiUrl='https://api.github.com/repos/yankhaing-cmyk/BursaMusangKing_StrategyTerminal/actions/workflows/strategy-scan.yml/dispatches';
+  const r=await fetch(apiUrl,{
+    method:'POST',
+    headers:{
+      'Accept':'application/vnd.github+json',
+      'Authorization':'Bearer '+env.GITHUB_ACTIONS_TOKEN,
+      'X-GitHub-Api-Version':'2026-03-10',
+      'User-Agent':'BursaMusangKing-StrategyTerminal'
+    },
+    body:JSON.stringify({ref:'main'})
+  });
+
+  let body=null;
+  const text=await r.text();
+  if(text){try{body=JSON.parse(text)}catch{body={message:text.slice(0,300)}}}
+  if(!r.ok)throw http(r.status,body?.message||`GitHub workflow dispatch failed (${r.status})`);
+
+  const triggeredAt=new Date().toISOString();
+  await upsertSetting(env,'manual_run_last_at',triggeredAt);
+  return json({ok:true,triggered_at:triggeredAt,workflow_run_id:body?.workflow_run_id||null,html_url:body?.html_url||null});
 }
 
 async function markReviewed(env){await upsertSetting(env,'last_reviewed_at',new Date().toISOString());return json({ok:true})}
