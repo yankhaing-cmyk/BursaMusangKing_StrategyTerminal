@@ -1,0 +1,28 @@
+name: Bursa ATR Strategy Scan
+on:
+  workflow_dispatch:
+  # Enable only after bootstrap + first live acceptance test succeeds:
+  # schedule:
+  #   - cron: '10 12 * * 1-5'  # 8:10 PM Malaysia
+permissions:
+  contents: read
+concurrency:
+  group: bursa-atr-strategy-terminal-scan
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt
+      - run: python python/publish_strategy_snapshot.py
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          UPSTREAM_REPO: yankhaing-cmyk/BursaMusangKing
+          UPSTREAM_REF: main
+          MIN_UNIVERSE: '900'
+          TRAIL_ATR_MULT: '3.0'
