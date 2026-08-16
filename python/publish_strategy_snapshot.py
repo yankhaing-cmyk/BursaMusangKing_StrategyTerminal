@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""Full Bursa daily snapshot for Trending/Momentum/M.E.T.A. ATR state tracking.
-Uses the upstream BursaMusangKing rules directly; it does not duplicate entry logic.
-"""
+"""Full Bursa daily snapshot for Trending/Momentum/M.E.T.A. ATR state tracking. Uses the upstream BursaMusangKing rules directly; it does not duplicate entry logic. """
 import json, os, sys
 from datetime import datetime, timezone
 import requests
@@ -26,9 +24,7 @@ def run(publish=True):
         u=universe.get_universe()
         if 'description' in u.columns:names={str(r['symbol']):str(r['description']) for _,r in u.iterrows() if r.get('description')==r.get('description')}
     except Exception as exc: print('name lookup warning:',exc)
-    # Determine the market's latest trading date first, then accept ONLY
-    # symbols whose last bar is on that same date. This prevents a partial or
-    # stale feed from creating false BUY/SELL transitions.
+
     dated=[str(raw.index[-1])[:10] for raw in data.values() if raw is not None and len(raw)]
     if not dated: raise RuntimeError('FAIL-CLOSED: market feed returned no dated bars')
     latest_date=max(dated)
@@ -49,21 +45,71 @@ def run(publish=True):
                 check=scr.CHECKS.get(strategy)
                 try:hits[strategy]=bool(p and check and check(e,i,p))
                 except Exception:hits[strategy]=False
-            rows.append({'symbol':symbol,'name':names.get(symbol,''),'open':round(o,4),'low':round(l,4),'close':round(c,4),'atr':round(a,5),'hits':hits})
-        except Exception: bad+=1
-    if len(rows)<MIN_UNIVERSE: raise RuntimeError(f'FAIL-CLOSED: only {len(rows)} current-date valid rows; bad={bad} stale={stale}; need >= {MIN_UNIVERSE}')
+
+            rows.append({
+                'symbol':symbol,
+                'name':names.get(symbol,''),
+                'open':o,
+                'low':l,
+                'close':c,
+                'atr':a,
+                'hits':hits
+            })
+        except Exception:
+            bad+=1
+
+    if len(rows)<MIN_UNIVERSE:
+        raise RuntimeError(f'FAIL-CLOSED: only {len(rows)} current-date valid rows; bad={bad} stale={stale}; need >= {MIN_UNIVERSE}')
+
+    invalid=[]
+    seen=set()
+    for r in rows:
+        sym=str(r.get('symbol') or '').strip()
+        vals=(r.get('open'),r.get('low'),r.get('close'),r.get('atr'))
+        if (not sym or not all(num(v) is not None and num(v)>0 for v in vals) or sym in seen):
+            invalid.append((sym, vals))
+            if len(invalid)>=10:
+                break
+        seen.add(sym)
+    if invalid:
+        raise RuntimeError(f'FAIL-CLOSED preflight: invalid outgoing rows: {invalid}')
+
     bt=cfg.BACKTEST
-    payload={'generated_at':datetime.now(timezone.utc).isoformat(),'trade_date':latest_date,'stocks_screened':screened,'rows':rows,'params':{'atr_mult':ATR_MULT,'stop_loss_pct':float(bt.get('stop_loss_pct',-7)),'commission_pct':float(bt.get('commission_pct',0))},'strategies':list(STRATEGIES)}
-    with open('strategy_snapshot.json','w') as f:json.dump(payload,f,separators=(',',':'))
+    payload={
+        'generated_at':datetime.now(timezone.utc).isoformat(),
+        'trade_date':latest_date,
+        'stocks_screened':screened,
+        'rows':rows,
+        'params':{
+            'atr_mult':ATR_MULT,
+            'stop_loss_pct':float(bt.get('stop_loss_pct',-7)),
+            'commission_pct':float(bt.get('commission_pct',0))
+        },
+        'strategies':list(STRATEGIES)
+    }
+
+    with open('strategy_snapshot.json','w') as f:
+        json.dump(payload,f,separators=(',',':'))
+
     print(f'prepared {len(rows)}/{screened} rows date={latest_date} bad={bad} stale={stale}')
+
     if publish:
-        base=os.environ['WORKER_URL'].rstrip('/'); token=os.environ['PUBLISH_TOKEN']
+        base=os.environ['WORKER_URL'].rstrip('/')
+        token=os.environ['PUBLISH_TOKEN']
         r=requests.post(base+'/api/publish',json=payload,headers={'Authorization':'Bearer '+token},timeout=180)
-        print('publish',r.status_code,r.text[:500]);r.raise_for_status();res=r.json()
+        print('publish',r.status_code,r.text[:500])
+        r.raise_for_status()
+        res=r.json()
         if not res.get('ok'):raise RuntimeError(res)
-        h=requests.get(base+'/api/health',headers={'Cache-Control':'no-cache'},timeout=60);h.raise_for_status();health=h.json()
-        if health.get('last_run',{}).get('trade_date')!=latest_date:raise RuntimeError(f'publish verification mismatch: {health}')
+
+        h=requests.get(base+'/api/health',headers={'Cache-Control':'no-cache'},timeout=60)
+        h.raise_for_status()
+        health=h.json()
+        if health.get('last_run',{}).get('trade_date')!=latest_date:
+            raise RuntimeError(f'publish verification mismatch: {health}')
         print('VERIFIED',json.dumps(health,separators=(',',':')))
+
     return payload
 
-if __name__=='__main__':run('--no-publish' not in sys.argv)
+if __name__=='__main__':
+    run('--no-publish' not in sys.argv)
