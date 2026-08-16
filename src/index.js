@@ -5,14 +5,14 @@ const JSON_HEADERS={'content-type':'application/json; charset=utf-8','cache-cont
 export default { async fetch(request,env){
   const url=new URL(request.url);
   try{
-    if(url.pathname==='/api/health') return health(env);
-    if(url.pathname==='/api/dashboard') return dashboard(env,url);
-    if(url.pathname==='/api/events') return eventsApi(env,url);
-    if(url.pathname==='/api/positions') return positionsApi(env,url);
-    if(url.pathname==='/api/trades') return tradesApi(env,url);
-    if(url.pathname==='/api/review'&&request.method==='POST') return markReviewed(env);
-    if(url.pathname==='/api/publish'&&request.method==='POST') return publishSnapshot(request,env);
-    if(url.pathname==='/api/bootstrap'&&request.method==='POST') return bootstrapSnapshot(request,env,url);
+if(url.pathname==='/api/health') return await health(env);
+if(url.pathname==='/api/dashboard') return await dashboard(env,url);
+if(url.pathname==='/api/events') return await eventsApi(env,url);
+if(url.pathname==='/api/positions') return await positionsApi(env,url);
+if(url.pathname==='/api/trades') return await tradesApi(env,url);
+if(url.pathname==='/api/review'&&request.method==='POST') return await markReviewed(env);
+if(url.pathname==='/api/publish'&&request.method==='POST') return await publishSnapshot(request,env);
+if(url.pathname==='/api/bootstrap'&&request.method==='POST') return await bootstrapSnapshot(request,env,url);
     return env.ASSETS.fetch(request);
   }catch(e){console.error(e);return json({ok:false,error:e?.message||String(e)},e?.status||500)}
 }};
