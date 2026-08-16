@@ -1,0 +1,38 @@
+name: Strategy Terminal CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Syntax checks
+        run: |
+          node --check src/index.js
+          node --check src/engine.js
+          node --check public/app.js
+          node --check public/sw.js
+          python -m py_compile python/upstream.py python/publish_strategy_snapshot.py python/bootstrap_strategy_state.py
+      - run: npm test
+      - name: D1 schema smoke test
+        run: |
+          python - <<'PY'
+          import sqlite3
+          db=sqlite3.connect(':memory:')
+          db.executescript(open('migrations/0001_init.sql').read())
+          tables={r[0] for r in db.execute("select name from sqlite_master where type='table'")}
+          assert {'strategy_snapshots','daily_runs','app_settings'} <= tables
+          print('PASS')
+          PY
