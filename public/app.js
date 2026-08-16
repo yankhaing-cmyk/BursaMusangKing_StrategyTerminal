@@ -7,6 +7,16 @@ let state={dash:null,positions:[],events:[],trades:[],performance:[],health:null
 
 const api=async p=>{const r=await fetch(p,{cache:'no-store'}),j=await r.json();if(!r.ok)throw Error(j.error||r.statusText);return j};
 const money=n=>Number.isFinite(Number(n))?'RM '+Number(n).toFixed(3):'—';
+const bursaTick=v=>v<1?0.005:v<10?0.01:v<100?0.02:0.10;
+const atrMoney=n=>{
+  const v=Number(n);
+  if(!Number.isFinite(v))return '—';
+  let tick=bursaTick(v);
+  let rounded=Math.round((v+Number.EPSILON)/tick)*tick;
+  const tick2=bursaTick(rounded);
+  if(tick2!==tick){tick=tick2;rounded=Math.round((v+Number.EPSILON)/tick)*tick}
+  return 'RM '+rounded.toFixed(rounded<1?3:2)
+};
 const pct=n=>Number.isFinite(Number(n))?Number(n).toFixed(2)+'%':'—';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const MANUAL_RUN_URL='https://github.com/yankhaing-cmyk/BursaMusangKing_StrategyTerminal/actions/workflows/strategy-scan.yml';
@@ -178,7 +188,7 @@ function eventCard(x,life=null){
     </div>
     <div class="meta">
       <div class="kv"><span>Entry</span><b>${money(x.entry_price)}</b></div>
-      <div class="kv"><span>ATR stop</span><b>${money(x.atr_stop)}</b></div>
+      <div class="kv"><span>ATR stop</span><b>${atrMoney(x.atr_stop)}</b></div>
       <div class="kv"><span>Return</span><b>${pct(x.return_pct)}</b></div>
     </div>
     ${transition}
@@ -190,7 +200,7 @@ function renderOpen(){
   let a=state.positions.filter(x=>state.strategyFilter==='ALL'||x.strategy===state.strategyFilter);
   const q=($('#openSearch')?.value||'').toLowerCase();
   if(q)a=a.filter(x=>x.symbol.toLowerCase().includes(q)||x.name.toLowerCase().includes(q));
-  $('#openList').innerHTML=a.length?a.map(x=>`<div class="card"><div class="top"><div><div class="ticker">${esc(x.symbol.replace('.KL',''))}</div><div class="name">${esc(x.name)} · ${esc(labels[x.strategy]||x.strategy)}</div></div><div class="badge ${x.status==='NEAR_SELL'?'NEAR_SELL':'ENTRY_CONFIRMED'}">${esc(x.status)}</div></div><div class="meta"><div class="kv"><span>Entry</span><b>${money(x.entry_price)}</b></div><div class="kv"><span>Latest</span><b>${money(x.latest_close)}</b></div><div class="kv"><span>ATR stop</span><b>${money(x.atr_stop)}</b></div><div class="kv"><span>Signal</span><b>${esc(x.signal_date||'—')}</b></div><div class="kv"><span>Entry date</span><b>${esc(x.entry_date||'Pending')}</b></div><div class="kv"><span>Held</span><b>${x.hold_days||0}d</b></div></div></div>`).join(''):'<div class="empty">No matching active strategy states.</div>'
+  $('#openList').innerHTML=a.length?a.map(x=>`<div class="card"><div class="top"><div><div class="ticker">${esc(x.symbol.replace('.KL',''))}</div><div class="name">${esc(x.name)} · ${esc(labels[x.strategy]||x.strategy)}</div></div><div class="badge ${x.status==='NEAR_SELL'?'NEAR_SELL':'ENTRY_CONFIRMED'}">${esc(x.status)}</div></div><div class="meta"><div class="kv"><span>Entry</span><b>${money(x.entry_price)}</b></div><div class="kv"><span>Latest</span><b>${money(x.latest_close)}</b></div><div class="kv"><span>ATR stop</span><b>${atrMoney(x.atr_stop)}</b></div><div class="kv"><span>Signal</span><b>${esc(x.signal_date||'—')}</b></div><div class="kv"><span>Entry date</span><b>${esc(x.entry_date||'Pending')}</b></div><div class="kv"><span>Held</span><b>${x.hold_days||0}d</b></div></div></div>`).join(''):'<div class="empty">No matching active strategy states.</div>'
 }
 
 function renderHistory(){
