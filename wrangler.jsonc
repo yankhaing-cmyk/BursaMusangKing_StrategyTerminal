@@ -13,7 +13,7 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "bursa-musangking-strategy-terminal",
-    "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    "database_id": "4c9bbff9-8007-4769-90b3-e79bbce4d338"
   }],
   "vars": {
     "MIN_UNIVERSE": "900",
