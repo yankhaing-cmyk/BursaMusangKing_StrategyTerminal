@@ -25,6 +25,7 @@ export function processState(prev, row, strategy, opts = {}) {
 
   if (s.status === "BUY_PENDING") {
     if (tradeDate > String(s.signal_date || "") && open > 0 && low > 0 && close > 0) {
+      const fromStatus = s.status;
       s.status = "OPEN";
       s.entry_date = tradeDate;
       s.entry_price = open;
@@ -32,7 +33,11 @@ export function processState(prev, row, strategy, opts = {}) {
       s.initial_stop = open * (1 + stopLossPct / 100);
       s.atr_stop = s.initial_stop;
       s.hold_days = 0;
-      events.push(ev("ENTRY_CONFIRMED", row, strategy, open, s, `Entry confirmed at next-session open ${fmt(open)}.`));
+      events.push(ev(
+        "ENTRY_CONFIRMED", row, strategy, open, s,
+        `Entry confirmed at next-session open ${fmt(open)}.`,
+        fromStatus, s.status
+      ));
       if (low <= s.atr_stop) {
         closeTrade(s, row, strategy, commissionPct, events, "trail_stop");
       } else if (atr > 0) {
@@ -43,6 +48,7 @@ export function processState(prev, row, strategy, opts = {}) {
   }
 
   if (s.status === "OPEN" || s.status === "NEAR_SELL") {
+    const fromStatus = s.status;
     s.hold_days = Number(s.hold_days || 0) + 1;
     if (low <= Number(s.atr_stop)) {
       closeTrade(s, row, strategy, commissionPct, events, "trail_stop");
@@ -52,8 +58,16 @@ export function processState(prev, row, strategy, opts = {}) {
     if (atr > 0) s.atr_stop = Math.max(Number(s.atr_stop || 0), s.peak_close - atrMult * atr);
     const dist = close > 0 ? (close / s.atr_stop - 1) * 100 : 999;
     if (dist <= nearStopPct) {
-      if (s.status !== "NEAR_SELL") events.push(ev("NEAR_SELL", row, strategy, close, s, `Price is ${dist.toFixed(1)}% above the ATR stop.`));
-      s.status = "NEAR_SELL";
+      if (fromStatus !== "NEAR_SELL") {
+        s.status = "NEAR_SELL";
+        events.push(ev(
+          "NEAR_SELL", row, strategy, close, s,
+          `Price is ${dist.toFixed(1)}% above the ATR stop.`,
+          fromStatus, s.status
+        ));
+      } else {
+        s.status = "NEAR_SELL";
+      }
     } else {
       s.status = "OPEN";
     }
@@ -67,16 +81,22 @@ export function processState(prev, row, strategy, opts = {}) {
   }
 
   if (s.status === "FLAT" && hit) {
+    const fromStatus = s.status;
     s.status = "BUY_PENDING";
     s.signal_date = tradeDate;
     s.cycle = Number(s.cycle || 0) + 1;
     s.last_event = "BUY_SIGNAL";
-    events.push(ev("BUY_SIGNAL", row, strategy, close, s, `New ${strategyLabel(strategy)} ATR buy signal. Entry is next session open.`));
+    events.push(ev(
+      "BUY_SIGNAL", row, strategy, close, s,
+      `New ${strategyLabel(strategy)} ATR buy signal. Entry is next session open.`,
+      fromStatus, s.status
+    ));
   }
   return { state: s, events };
 }
 
 function closeTrade(s, row, strategy, commissionPct, events, reason) {
+  const fromStatus = s.status;
   const exit = Number(s.atr_stop);
   const gross = (exit / Number(s.entry_price) - 1) * 100;
   const net = gross - 2 * commissionPct;
@@ -85,10 +105,14 @@ function closeTrade(s, row, strategy, commissionPct, events, reason) {
   s.exit_price = exit;
   s.return_pct = net;
   s.last_event = "SELL";
-  events.push(ev("SELL", row, strategy, exit, s, `ATR trailing stop triggered at ${fmt(exit)}; strategy return ${net.toFixed(2)}%.`));
+  events.push(ev(
+    "SELL", row, strategy, exit, s,
+    `ATR trailing stop triggered at ${fmt(exit)}; strategy return ${net.toFixed(2)}%.`,
+    fromStatus, s.status
+  ));
 }
 
-function ev(type, row, strategy, price, s, message) {
+function ev(type, row, strategy, price, s, message, fromStatus = null, toStatus = null) {
   return {
     event_type: type,
     trade_date: row.trade_date,
@@ -100,6 +124,8 @@ function ev(type, row, strategy, price, s, message) {
     entry_price: Number.isFinite(Number(s.entry_price)) ? Number(s.entry_price) : null,
     return_pct: Number.isFinite(Number(s.return_pct)) ? Number(s.return_pct) : null,
     cycle: Number(s.cycle || 0),
+    from_status: fromStatus,
+    to_status: toStatus,
     message
   };
 }
