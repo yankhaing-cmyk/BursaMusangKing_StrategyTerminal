@@ -1,4 +1,4 @@
-const C='bursa-strategy-terminal-v3';
+const C='bursa-strategy-terminal-v4';
 const CORE=['/','/app.css','/app.js','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',e=>{
