@@ -1,5 +1,5 @@
-const C='bursa-strategy-terminal-v9';
-const CORE=['/','/app.css','/app.js','/manifest.webmanifest','/icon.svg'];
+const C='bursa-strategy-terminal-v10';
+const CORE=['/','/app.css','/app.js','/preview.js','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(C).then(c=>c.addAll(CORE)));
