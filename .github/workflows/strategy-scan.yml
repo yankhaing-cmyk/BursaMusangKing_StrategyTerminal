@@ -1,28 +1,60 @@
 name: Bursa ATR Strategy Scan
+
 on:
-  workflow_dispatch:
-  # Enable only after bootstrap + first live acceptance test succeeds:
-  # schedule:
-  #   - cron: '10 12 * * 1-5'  # 8:10 PM Malaysia
+  schedule:
+    - cron: '45 4 * * 1-5'   # 12:45 PM Malaysia: MIDDAY PREVIEW
+    - cron: '7 11 * * 1-5'   # 7:07 PM Malaysia: OFFICIAL DAILY SCAN
+  workflow_dispatch:          # App Run button triggers this same YAML
+
 permissions:
   contents: read
+
 concurrency:
   group: bursa-atr-strategy-terminal-scan
   cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r requirements.txt
-      - run: python python/publish_strategy_snapshot.py
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Select scan mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual app Run is always a rough preview and never changes
+            # official strategy state/history/performance.
+            echo "RUN_MODE=preview" >> "$GITHUB_ENV"
+          elif [ "${{ github.event.schedule }}" = "45 4 * * 1-5" ]; then
+            echo "RUN_MODE=preview" >> "$GITHUB_ENV"
+          else
+            echo "RUN_MODE=official" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run Bursa strategy scan
+        shell: bash
         env:
           WORKER_URL: ${{ secrets.WORKER_URL }}
           PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
           UPSTREAM_REPO: yankhaing-cmyk/BursaMusangKing
           UPSTREAM_REF: main
-          MIN_UNIVERSE: '900'
           TRAIL_ATR_MULT: '3.0'
+          MIN_OFFICIAL_COVERAGE_RATIO: '0.50'
+        run: |
+          echo "GitHub event: ${{ github.event_name }}"
+          echo "Scan mode: $RUN_MODE"
+          if [ "$RUN_MODE" = "preview" ]; then
+            python python/publish_strategy_snapshot.py --preview
+          else
+            python python/publish_strategy_snapshot.py
+          fi
