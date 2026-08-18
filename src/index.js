@@ -176,8 +176,15 @@ function performance(trades){
 }
 
 async function previewApi(env){
-  const raw=await setting(env,'latest_preview_json','');
-  return json({ok:true,preview:parse(raw,null)});
+  const [raw,screenerRaw]=await Promise.all([
+    setting(env,'latest_preview_json',''),
+    setting(env,'latest_screener_json','')
+  ]);
+  return json({
+    ok:true,
+    preview:parse(raw,null),
+    screener:parse(screenerRaw,null)
+  });
 }
 
 async function publishPreview(request,env){
@@ -187,7 +194,8 @@ async function publishPreview(request,env){
 
   const old=await loadStateMaps(env);
   const events=[];
-  const hitCounts=Object.fromEntries(STRATEGIES.map(s=>[s,0]));
+  const screener=rawScreener(p,'preview');
+  const hitCounts={...screener.counts};
   const params=p.params||{};
 
   let advancers=0,decliners=0,unchanged=0;
@@ -195,10 +203,6 @@ async function publishPreview(request,env){
 
   for(const row0 of p.rows){
     const row={...row0,symbol:norm(row0.symbol),trade_date:p.trade_date};
-
-    for(const strategy of STRATEGIES){
-      if(row.hits?.[strategy])hitCounts[strategy]++;
-    }
 
     const ch=Number(row.change_pct);
     if(Number.isFinite(ch)){
@@ -259,7 +263,10 @@ async function publishPreview(request,env){
     events:events.slice(0,300)
   };
 
-  await upsertSetting(env,'latest_preview_json',JSON.stringify(preview));
+  await env.DB.batch([
+    settingStmt(env,'latest_preview_json',JSON.stringify(preview)),
+    settingStmt(env,'latest_screener_json',JSON.stringify(screener))
+  ]);
   return json({
     ok:true,
     trade_date:preview.trade_date,
@@ -477,6 +484,7 @@ async function publishSnapshot(request,env){
       JSON.stringify(trades)
     )
   );
+  writes.push(settingStmt(env,'latest_screener_json',JSON.stringify(rawScreener(p,'official'))));
 
   await env.DB.batch(writes);
   return json({
@@ -487,6 +495,32 @@ async function publishSnapshot(request,env){
     events:events.length,
     trades:trades.length
   });
+}
+
+function rawScreener(p,source){
+  const src=p.raw_screener||{};
+  const hits={};
+  const counts={};
+  for(const st of STRATEGIES){
+    hits[st]=(Array.isArray(src.hits?.[st])?src.hits[st]:[]).map(x=>({
+      symbol:String(x.symbol||''),
+      name:String(x.name||''),
+      close:finite(x.close)?Number(x.close):null,
+      rsi:finite(x.rsi)?Number(x.rsi):null,
+      adx:finite(x.adx)?Number(x.adx):null,
+      vol_ratio:finite(x.vol_ratio)?Number(x.vol_ratio):null,
+      roc10:finite(x.roc10)?Number(x.roc10):null
+    }));
+    counts[st]=hits[st].length;
+  }
+  return {
+    generated_at:p.generated_at,
+    trade_date:p.trade_date,
+    stocks_screened:Number(p.stocks_screened||0),
+    source,
+    counts,
+    hits
+  };
 }
 
 function addConfluence(events){
@@ -512,6 +546,10 @@ function validatePayload(p,env,preview=false){
   }
   if(!p.generated_at||Number.isNaN(new Date(p.generated_at).getTime())){
     throw http(400,'valid generated_at required');
+  }
+  if(!p.raw_screener||!p.raw_screener.hits||
+     STRATEGIES.some(st=>!Array.isArray(p.raw_screener.hits[st]))){
+    throw http(422,'raw_screener hits required for Trending/Momentum/M.E.T.A.');
   }
 
   if(!preview){
