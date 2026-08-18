@@ -115,6 +115,27 @@ def run(preview=False, publish=True):
     except Exception as exc:
         print("name lookup warning:", exc)
 
+    # IMPORTANT: raw screener results come from the exact same live path used
+    # by BursaMusangKing_App. Do this BEFORE the Strategy Terminal's date/ATR
+    # lifecycle filtering so the raw Trending/Momentum/M.E.T.A. lists cannot
+    # drift from the original app's screener logic.
+    raw_all = scr.scan(data)
+    raw_hits = {}
+    raw_hit_sets = {}
+    for strategy in STRATEGIES:
+        items = []
+        for h in raw_all.get(strategy, []):
+            rec = dict(h)
+            rec["name"] = names.get(str(h.get("symbol", "")), "")
+            items.append(rec)
+        raw_hits[strategy] = items
+        raw_hit_sets[strategy] = {str(x.get("symbol", "")) for x in items}
+
+    print(
+        "raw screener matches:",
+        ", ".join(f"{st}={len(raw_hits[st])}" for st in STRATEGIES),
+    )
+
     trade_date, date_counts, required_coverage = choose_trade_date(data, preview, screened)
     current_histories = int(date_counts.get(trade_date, 0))
 
@@ -129,7 +150,10 @@ def run(preview=False, publish=True):
                 continue
 
             e = ind.enrich(raw)
-            if e is None or len(e) < 220:
+            # Do NOT impose a blanket 220-bar rule here. The original screener
+            # lets each strategy decide its own required history. Strategy-state
+            # processing only needs a valid current bar plus ATR.
+            if e is None or not len(e):
                 bad += 1
                 continue
 
@@ -151,14 +175,12 @@ def run(preview=False, publish=True):
                 else None
             )
 
-            hits = {}
-            for strategy in STRATEGIES:
-                p = cfg.STRATEGIES.get(strategy)
-                check = scr.CHECKS.get(strategy)
-                try:
-                    hits[strategy] = bool(p and check and check(e, i, p))
-                except Exception:
-                    hits[strategy] = False
+            # Membership comes from the exact raw screener.scan(data) result
+            # above. This prevents a second, slightly different screening path.
+            hits = {
+                strategy: symbol in raw_hit_sets[strategy]
+                for strategy in STRATEGIES
+            }
 
             rows.append(
                 {
@@ -202,8 +224,17 @@ def run(preview=False, publish=True):
         raise RuntimeError(f"preflight invalid outgoing rows: {invalid}")
 
     bt = cfg.BACKTEST
+    generated_at = datetime.now(timezone.utc).isoformat()
+    raw_screener = {
+        "generated_at": generated_at,
+        "trade_date": trade_date,
+        "stocks_screened": screened,
+        "counts": {st: len(raw_hits[st]) for st in STRATEGIES},
+        "hits": raw_hits,
+    }
+
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "trade_date": trade_date,
         "stocks_screened": screened,
         "rows_current_date": len(rows),
@@ -214,6 +245,7 @@ def run(preview=False, publish=True):
         "required_coverage": required_coverage if not preview else None,
         "official_coverage_ratio": MIN_OFFICIAL_COVERAGE_RATIO if not preview else None,
         "rows": rows,
+        "raw_screener": raw_screener,
         "params": {
             "atr_mult": ATR_MULT,
             "stop_loss_pct": float(bt.get("stop_loss_pct", -7)),
